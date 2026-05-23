@@ -1,0 +1,24 @@
+# Build directories
+/build/
+/out/
+/bin/
+
+# Temporary ShoutVST reference source
+/shoutvst_source/
+
+# IDE files
+/.vs/
+/Visual Studio*/
+/*.user
+/*.suo
+/*.db
+/*.opendb
+/*.vc.db
+CMakeUserPresets.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# JUCE generated files (if any)
+/JuceLibraryCode/
