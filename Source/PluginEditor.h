@@ -3,6 +3,12 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
 
+#if JUCE_WINDOWS
+ #define NOMINMAX
+ #include <windows.h>
+ #include <oleauto.h>
+#endif
+
 class AccessibleTextEditor : public juce::TextEditor
 {
 public:
@@ -18,7 +24,7 @@ public:
 
             if (! highlight.isEmpty())
             {
-                juce::AccessibilityHandler::postAnnouncement ("selezione cancellata", juce::AccessibilityHandler::AnnouncementPriority::high);
+                postAccessibleAnnouncement ("selezione cancellata");
             }
             else if (caretPos > 0 && caretPos <= text.length())
             {
@@ -31,7 +37,7 @@ public:
                     else if (deletedChar == " ")
                         announcement = "spazio";
 
-                    juce::AccessibilityHandler::postAnnouncement (announcement, juce::AccessibilityHandler::AnnouncementPriority::high);
+                    postAccessibleAnnouncement (announcement);
                 }
             }
         }
@@ -43,7 +49,7 @@ public:
 
             if (! highlight.isEmpty())
             {
-                juce::AccessibilityHandler::postAnnouncement ("selezione cancellata", juce::AccessibilityHandler::AnnouncementPriority::high);
+                postAccessibleAnnouncement ("selezione cancellata");
             }
             else if (caretPos >= 0 && caretPos < text.length())
             {
@@ -56,12 +62,68 @@ public:
                     else if (deletedChar == " ")
                         announcement = "spazio";
 
-                    juce::AccessibilityHandler::postAnnouncement (announcement, juce::AccessibilityHandler::AnnouncementPriority::high);
+                    postAccessibleAnnouncement (announcement);
                 }
             }
         }
 
         return juce::TextEditor::keyPressed (key);
+    }
+
+private:
+    void postAccessibleAnnouncement (const juce::String& text)
+    {
+       #if JUCE_WINDOWS
+        if (auto* handler = getAccessibilityHandler())
+        {
+            if (auto* nativeHandle = handler->getNativeImplementation())
+            {
+                static HMODULE hUiaDll = GetModuleHandleA ("UIAutomationCore.dll");
+                if (hUiaDll == nullptr)
+                    hUiaDll = LoadLibraryA ("UIAutomationCore.dll");
+
+                if (hUiaDll != nullptr)
+                {
+                    typedef HRESULT (WINAPI* UiaRaiseNotificationEventFunc) (
+                        IUnknown*,
+                        int, // NotificationKind
+                        int, // NotificationProcessing
+                        BSTR,
+                        BSTR
+                    );
+
+                    static auto uiaRaiseNotificationEvent = (UiaRaiseNotificationEventFunc)
+                        GetProcAddress (hUiaDll, "UiaRaiseNotificationEvent");
+
+                    if (uiaRaiseNotificationEvent != nullptr)
+                    {
+                        IUnknown* unk = (IUnknown*) nativeHandle;
+                        
+                        static const GUID uuid_IRawElementProviderSimple = 
+                            { 0xd6dd20d1, 0xcd34, 0x4ab3, { 0xb7, 0xec, 0xb0, 0xae, 0x2d, 0xe7, 0xe1, 0x68 } };
+                        
+                        IUnknown* provider = nullptr;
+                        if (SUCCEEDED (unk->QueryInterface (uuid_IRawElementProviderSimple, (void**) &provider)) && provider != nullptr)
+                        {
+                            BSTR displayString = SysAllocString (text.toWideCharPointer());
+                            BSTR activityId = SysAllocString (L"DawCastDeletionAnnouncement");
+
+                            // UIA Notification Kind: 2 (ActionCompleted)
+                            // UIA Notification Processing: 0 (ImportantAll)
+                            uiaRaiseNotificationEvent (provider, 2, 0, displayString, activityId);
+
+                            SysFreeString (displayString);
+                            SysFreeString (activityId);
+                            provider->Release();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+       #endif
+
+        juce::AccessibilityHandler::postAnnouncement (text, juce::AccessibilityHandler::AnnouncementPriority::high);
     }
 };
 
