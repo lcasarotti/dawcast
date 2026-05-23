@@ -3,6 +3,68 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
 
+class AccessibleTextEditor : public juce::TextEditor
+{
+public:
+    AccessibleTextEditor (const juce::String& name = {}) : juce::TextEditor (name) {}
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() == juce::KeyPress::backspaceKey)
+        {
+            auto text = getText();
+            auto caretPos = getCaretPosition();
+            auto highlight = getHighlightedRegion();
+
+            if (! highlight.isEmpty())
+            {
+                juce::AccessibilityHandler::postAnnouncement ("selezione cancellata", juce::AccessibilityHandler::AnnouncementPriority::high);
+            }
+            else if (caretPos > 0 && caretPos <= text.length())
+            {
+                auto deletedChar = text.substring (caretPos - 1, caretPos);
+                if (deletedChar.isNotEmpty())
+                {
+                    juce::String announcement = deletedChar;
+                    if (getPasswordCharacter() != 0)
+                        announcement = "punto";
+                    else if (deletedChar == " ")
+                        announcement = "spazio";
+
+                    juce::AccessibilityHandler::postAnnouncement (announcement, juce::AccessibilityHandler::AnnouncementPriority::high);
+                }
+            }
+        }
+        else if (key.getKeyCode() == juce::KeyPress::deleteKey)
+        {
+            auto text = getText();
+            auto caretPos = getCaretPosition();
+            auto highlight = getHighlightedRegion();
+
+            if (! highlight.isEmpty())
+            {
+                juce::AccessibilityHandler::postAnnouncement ("selezione cancellata", juce::AccessibilityHandler::AnnouncementPriority::high);
+            }
+            else if (caretPos >= 0 && caretPos < text.length())
+            {
+                auto deletedChar = text.substring (caretPos, caretPos + 1);
+                if (deletedChar.isNotEmpty())
+                {
+                    juce::String announcement = deletedChar;
+                    if (getPasswordCharacter() != 0)
+                        announcement = "punto";
+                    else if (deletedChar == " ")
+                        announcement = "spazio";
+
+                    juce::AccessibilityHandler::postAnnouncement (announcement, juce::AccessibilityHandler::AnnouncementPriority::high);
+                }
+            }
+        }
+
+        return juce::TextEditor::keyPressed (key);
+    }
+};
+
 class DawCastAudioProcessorEditor  : public juce::AudioProcessorEditor,
                                      public DawCastAudioProcessor::Listener,
                                      public juce::Timer
@@ -51,40 +113,40 @@ private:
     // Middle Column: Server details
     juce::Label serverHeader;
     
-    juce::TextEditor hostInput;
+    AccessibleTextEditor hostInput;
     juce::Label hostLabel;
     
-    juce::TextEditor portInput;
+    AccessibleTextEditor portInput;
     juce::Label portLabel;
     
-    juce::TextEditor userInput;
+    AccessibleTextEditor userInput;
     juce::Label userLabel;
     
-    juce::TextEditor passInput;
+    AccessibleTextEditor passInput;
     juce::Label passLabel;
     
-    juce::TextEditor mountInput;
+    AccessibleTextEditor mountInput;
     juce::Label mountLabel;
 
     // Right Column: Stream Info & Metadata
     juce::Label streamHeader;
     
-    juce::TextEditor nameInput;
+    AccessibleTextEditor nameInput;
     juce::Label nameLabel;
     
-    juce::TextEditor genreInput;
+    AccessibleTextEditor genreInput;
     juce::Label genreLabel;
     
-    juce::TextEditor descInput;
+    AccessibleTextEditor descInput;
     juce::Label descLabel;
     
-    juce::TextEditor urlInput;
+    AccessibleTextEditor urlInput;
     juce::Label urlLabel;
     
-    juce::TextEditor artistInput;
+    AccessibleTextEditor artistInput;
     juce::Label artistLabel;
     
-    juce::TextEditor titleInput;
+    AccessibleTextEditor titleInput;
     juce::Label titleLabelField;
 
     // Footer Controls
