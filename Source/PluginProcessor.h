@@ -5,6 +5,7 @@
 #include "AudioEncoder.h"
 #include <atomic>
 #include <memory>
+#include <map>
 
 class DawCastAudioProcessor : public juce::AudioProcessor
 {
@@ -77,7 +78,14 @@ public:
     bool isCurrentlyConnecting() const;
     
     const ConnectionSettings& getConnectionSettings() const { return currentSettings; }
+    void setConnectionSettings (const ConnectionSettings& settings);
     void updateLiveMetadata(const juce::String& artist, const juce::String& title);
+
+    // Preset management
+    void savePreset (const juce::String& presetName, const ConnectionSettings& settings);
+    void deletePreset (const juce::String& presetName);
+    juce::StringArray getPresetNames() const;
+    ConnectionSettings getPresetSettings (const juce::String& presetName) const;
 
 private:
     ConnectionSettings currentSettings;
@@ -112,6 +120,11 @@ private:
     juce::ListenerList<Listener> listeners;
 
     void handleAsyncConnect(const ConnectionSettings& settings);
+
+    std::map<juce::String, ConnectionSettings> presets;
+    juce::File getPresetsFile() const;
+    void loadPresetsFromFile();
+    void writePresetsToFile();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DawCastAudioProcessor)
 };

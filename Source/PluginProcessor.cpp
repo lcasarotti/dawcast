@@ -18,6 +18,7 @@ DawCastAudioProcessor::DawCastAudioProcessor()
       fifo(ringBufferSize),
       streamingThread(*this)
 {
+    loadPresetsFromFile();
 }
 
 // Destructor
@@ -372,6 +373,11 @@ void DawCastAudioProcessor::stopStreaming()
     });
 }
 
+void DawCastAudioProcessor::setConnectionSettings (const ConnectionSettings& settings)
+{
+    currentSettings = settings;
+}
+
 void DawCastAudioProcessor::updateLiveMetadata(const juce::String& artist, const juce::String& title)
 {
     currentSettings.currentArtist = artist;
@@ -462,6 +468,142 @@ void DawCastAudioProcessor::StreamingThread::run()
             }
 
             numReady = processor.fifo.getNumReady();
+        }
+    }
+}
+
+// Preset Management Implementation
+juce::File DawCastAudioProcessor::getPresetsFile() const
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("LucaCasarotti")
+        .getChildFile ("DawCast")
+        .getChildFile ("Presets.json");
+}
+
+void DawCastAudioProcessor::savePreset (const juce::String& presetName, const ConnectionSettings& settings)
+{
+    presets[presetName] = settings;
+    writePresetsToFile();
+}
+
+void DawCastAudioProcessor::deletePreset (const juce::String& presetName)
+{
+    presets.erase (presetName);
+    writePresetsToFile();
+}
+
+juce::StringArray DawCastAudioProcessor::getPresetNames() const
+{
+    juce::StringArray names;
+    for (const auto& pair : presets)
+        names.add (pair.first);
+    return names;
+}
+
+DawCastAudioProcessor::ConnectionSettings DawCastAudioProcessor::getPresetSettings (const juce::String& presetName) const
+{
+    auto it = presets.find (presetName);
+    if (it != presets.end())
+        return it->second;
+    return {};
+}
+
+void DawCastAudioProcessor::writePresetsToFile()
+{
+    juce::DynamicObject::Ptr rootObj = new juce::DynamicObject();
+    juce::Array<juce::var> presetsArray;
+
+    for (const auto& pair : presets)
+    {
+        juce::DynamicObject::Ptr pObj = new juce::DynamicObject();
+        pObj->setProperty ("name", pair.first);
+        pObj->setProperty ("host", pair.second.host);
+        pObj->setProperty ("port", pair.second.port);
+        pObj->setProperty ("username", pair.second.username);
+        pObj->setProperty ("password", pair.second.password);
+        pObj->setProperty ("mountPoint", pair.second.mountPoint);
+        pObj->setProperty ("format", pair.second.format);
+        pObj->setProperty ("bitrate", pair.second.bitrateKbps);
+        pObj->setProperty ("targetSampleRate", pair.second.targetSampleRate);
+        pObj->setProperty ("streamName", pair.second.streamName);
+        pObj->setProperty ("streamUrl", pair.second.streamUrl);
+        pObj->setProperty ("streamDescription", pair.second.streamDescription);
+        pObj->setProperty ("streamGenre", pair.second.streamGenre);
+        
+        presetsArray.add (juce::var (pObj.get()));
+    }
+
+    rootObj->setProperty ("presets", presetsArray);
+    
+    auto file = getPresetsFile();
+    if (!file.getParentDirectory().exists())
+        file.getParentDirectory().createDirectory();
+
+    file.replaceWithText (juce::JSON::toString (juce::var (rootObj.get())));
+}
+
+void DawCastAudioProcessor::loadPresetsFromFile()
+{
+    presets.clear();
+    auto file = getPresetsFile();
+    if (!file.existsAsFile())
+        return;
+
+    auto json = juce::JSON::parse (file);
+    if (auto* obj = json.getDynamicObject())
+    {
+        if (auto* presetsArray = obj->getProperty ("presets").getArray())
+        {
+            for (const auto& pVar : *presetsArray)
+            {
+                if (auto* pObj = pVar.getDynamicObject())
+                {
+                    juce::String name = pObj->getProperty ("name").toString();
+                    if (name.isEmpty())
+                        continue;
+
+                    ConnectionSettings s;
+                    
+                    auto valHost = pObj->getProperty ("host");
+                    if (!valHost.isVoid()) s.host = valHost.toString();
+                    
+                    auto valPort = pObj->getProperty ("port");
+                    if (!valPort.isVoid()) s.port = (int) valPort;
+
+                    auto valUser = pObj->getProperty ("username");
+                    if (!valUser.isVoid()) s.username = valUser.toString();
+
+                    auto valPass = pObj->getProperty ("password");
+                    if (!valPass.isVoid()) s.password = valPass.toString();
+
+                    auto valMount = pObj->getProperty ("mountPoint");
+                    if (!valMount.isVoid()) s.mountPoint = valMount.toString();
+
+                    auto valFormat = pObj->getProperty ("format");
+                    if (!valFormat.isVoid()) s.format = valFormat.toString();
+
+                    auto valBitrate = pObj->getProperty ("bitrate");
+                    if (!valBitrate.isVoid()) s.bitrateKbps = (int) valBitrate;
+
+                    auto valSr = pObj->getProperty ("targetSampleRate");
+                    if (!valSr.isVoid()) s.targetSampleRate = (int) valSr;
+
+                    auto valName = pObj->getProperty ("streamName");
+                    if (!valName.isVoid()) s.streamName = valName.toString();
+
+                    auto valUrl = pObj->getProperty ("streamUrl");
+                    if (!valUrl.isVoid()) s.streamUrl = valUrl.toString();
+
+                    auto valDesc = pObj->getProperty ("streamDescription");
+                    if (!valDesc.isVoid()) s.streamDescription = valDesc.toString();
+
+                    auto valGenre = pObj->getProperty ("streamGenre");
+                    if (!valGenre.isVoid()) s.streamGenre = valGenre.toString();
+
+                    presets[name] = s;
+                }
+            }
         }
     }
 }

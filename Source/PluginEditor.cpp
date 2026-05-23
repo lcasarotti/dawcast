@@ -16,6 +16,7 @@ DawCastAudioProcessorEditor::DawCastAudioProcessorEditor (DawCastAudioProcessor&
     
     // 4. Load persisted settings and update visual state
     loadSettingsFromProcessor();
+    updatePresetsCombo();
     updateUIState();
     
     // 5. Start a periodic UI status timer
@@ -54,6 +55,9 @@ void DawCastAudioProcessorEditor::setupUIComponents()
         label.setJustificationType (juce::Justification::centredRight);
         label.setColour (juce::Label::textColourId, juce::Colour (0xFF9CAAC6));
         label.attachToComponent (&editor, true);
+
+        // Track when user manually modifies the text
+        editor.onTextChange = [this]() { userModifiedSettings(); };
     };
 
     // Custom setup lambda for ComboBoxes
@@ -77,19 +81,22 @@ void DawCastAudioProcessorEditor::setupUIComponents()
         label.setJustificationType (juce::Justification::centredRight);
         label.setColour (juce::Label::textColourId, juce::Colour (0xFF9CAAC6));
         label.attachToComponent (&combo, true);
+
+        // Track when user modifies settings dropdown
+        combo.onChange = [this]() { userModifiedSettings(); };
     };
 
     // Title Header
     addAndMakeVisible (titleLabel);
     titleLabel.setText ("DawCast Live Broadcaster", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (24.0f, juce::Font::bold));
+    titleLabel.setFont (juce::Font (20.0f, juce::Font::bold));
     titleLabel.setColour (juce::Label::textColourId, juce::Colour (0xFF00E5FF));
-    titleLabel.setJustificationType (juce::Justification::centred);
+    titleLabel.setJustificationType (juce::Justification::centredLeft);
 
-    // Status Display - Focusable to allow screenreader checking
+    // Status Display - Focusable to allow screenreader checking (Shifted focus to 21)
     addAndMakeVisible (statusLabel);
     statusLabel.setWantsKeyboardFocus (true);
-    statusLabel.setExplicitFocusOrder (17);
+    statusLabel.setExplicitFocusOrder (21);
     statusLabel.setJustificationType (juce::Justification::centred);
     statusLabel.setFont (juce::Font (14.0f, juce::Font::italic));
     statusLabel.setTitle ("Connection Status");
@@ -111,17 +118,103 @@ void DawCastAudioProcessorEditor::setupUIComponents()
     streamHeader.setFont (juce::Font (16.0f, juce::Font::bold));
     streamHeader.setColour (juce::Label::textColourId, juce::Colour (0xFFE3E8F4));
 
+    // --- Presets UI Controls ---
+    addAndMakeVisible (presetCombo);
+    presetCombo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0x171C2E));
+    presetCombo.setColour (juce::ComboBox::textColourId, juce::Colour (0xFFE3E8F4));
+    presetCombo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xFF2F3B5C));
+    presetCombo.setWantsKeyboardFocus (true);
+    presetCombo.setExplicitFocusOrder (1);
+    presetCombo.setTitle ("Connection Presets");
+    presetCombo.setDescription ("Select a saved streaming configuration preset.");
+    
+    addAndMakeVisible (presetLabel);
+    presetLabel.setText ("Preset:", juce::dontSendNotification);
+    presetLabel.setJustificationType (juce::Justification::centredRight);
+    presetLabel.setColour (juce::Label::textColourId, juce::Colour (0xFF9CAAC6));
+    presetLabel.attachToComponent (&presetCombo, true);
+
+    addAndMakeVisible (presetSaveButton);
+    presetSaveButton.setButtonText ("Save");
+    presetSaveButton.setWantsKeyboardFocus (true);
+    presetSaveButton.setExplicitFocusOrder (2);
+    presetSaveButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0x171C2E));
+    presetSaveButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF00E5FF));
+    presetSaveButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFE3E8F4));
+    presetSaveButton.setTitle ("Save Preset Button");
+    presetSaveButton.setDescription ("Save current streaming configuration settings as a new preset.");
+    presetSaveButton.onClick = [this]() { savePresetClicked(); };
+
+    addAndMakeVisible (presetDeleteButton);
+    presetDeleteButton.setButtonText ("Delete");
+    presetDeleteButton.setWantsKeyboardFocus (true);
+    presetDeleteButton.setExplicitFocusOrder (3);
+    presetDeleteButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0x171C2E));
+    presetDeleteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF00E5FF));
+    presetDeleteButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFE3E8F4));
+    presetDeleteButton.setTitle ("Delete Preset Button");
+    presetDeleteButton.setDescription ("Delete the currently selected preset.");
+    presetDeleteButton.onClick = [this]() { deletePresetClicked(); };
+
+    presetCombo.onChange = [this]()
+    {
+        auto selectedPreset = presetCombo.getText();
+        if (selectedPreset == "Custom" || selectedPreset.isEmpty())
+            return;
+            
+        auto s = audioProcessor.getPresetSettings (selectedPreset);
+        
+        isUpdatingFromPreset = true;
+        
+        hostInput.setText (s.host, false);
+        portInput.setText (juce::String (s.port), false);
+        userInput.setText (s.username, false);
+        passInput.setText (s.password, false);
+        mountInput.setText (s.mountPoint, false);
+        
+        nameInput.setText (s.streamName, false);
+        genreInput.setText (s.streamGenre, false);
+        descInput.setText (s.streamDescription, false);
+        urlInput.setText (s.streamUrl, false);
+        
+        artistInput.setText (s.currentArtist, false);
+        titleInput.setText (s.currentTitle, false);
+        
+        formatCombo.setSelectedId (s.format == "ogg" ? 2 : 1, juce::dontSendNotification);
+        
+        int bitrateId = -1;
+        for (int i = 1; i <= bitrateCombo.getNumItems(); ++i)
+        {
+            if (bitrateCombo.getItemText (i - 1).getIntValue() == s.bitrateKbps)
+            {
+                bitrateId = i;
+                break;
+            }
+        }
+        if (bitrateId != -1)
+            bitrateCombo.setSelectedId (bitrateId, juce::dontSendNotification);
+            
+        if (s.targetSampleRate == 44100)
+            sampleRateCombo.setSelectedId (2, juce::dontSendNotification);
+        else if (s.targetSampleRate == 48000)
+            sampleRateCombo.setSelectedId (3, juce::dontSendNotification);
+        else
+            sampleRateCombo.setSelectedId (1, juce::dontSendNotification);
+            
+        isUpdatingFromPreset = false;
+    };
+
     // --- Instantiating controls with focus order and screenreader texts ---
 
-    // Left Column Controls (Focus 1 - 3)
+    // Left Column Controls (Focus 4 - 6)
     setupComboBox (formatCombo, formatLabel, "Format:", 
-                   "Stream Format", "Select between MP3 and OGG Vorbis streaming encoding", 1);
+                   "Stream Format", "Select between MP3 and OGG Vorbis streaming encoding", 4);
     formatCombo.addItem ("MP3 (LAME)", 1);
     formatCombo.addItem ("OGG (Vorbis)", 2);
     formatCombo.setSelectedId (1, juce::dontSendNotification);
 
     setupComboBox (bitrateCombo, bitrateLabel, "Bitrate:", 
-                   "Bitrate", "Select encoding bitrate in kilobits per second", 2);
+                   "Bitrate", "Select encoding bitrate in kilobits per second", 5);
     bitrateCombo.addItem ("64 kbps", 1);
     bitrateCombo.addItem ("96 kbps", 2);
     bitrateCombo.addItem ("128 kbps", 3);
@@ -132,51 +225,51 @@ void DawCastAudioProcessorEditor::setupUIComponents()
     bitrateCombo.setSelectedId (3, juce::dontSendNotification);
 
     setupComboBox (sampleRateCombo, sampleRateLabel, "Samplerate:", 
-                   "Sample Rate", "Choose whether to match DAW sample rate or downsample to standard streaming rates", 3);
+                   "Sample Rate", "Choose whether to match DAW sample rate or downsample to standard streaming rates", 6);
     sampleRateCombo.addItem ("DAW Native", 1);
     sampleRateCombo.addItem ("44.1 kHz", 2);
     sampleRateCombo.addItem ("48.0 kHz", 3);
     sampleRateCombo.setSelectedId (1, juce::dontSendNotification);
 
-    // Middle Column Controls (Focus 4 - 8)
+    // Middle Column Controls (Focus 7 - 11)
     setupTextEditor (hostInput, hostLabel, "Server IP:", 
-                     "Server Hostname", "Enter the server's IP address or domain name", 4);
+                     "Server Hostname", "Enter the server's IP address or domain name", 7);
     
     setupTextEditor (portInput, portLabel, "Port:", 
-                     "Port Number", "Enter the server port number (default is 8000)", 5);
+                     "Port Number", "Enter the server port number (default is 8000)", 8);
     
     setupTextEditor (userInput, userLabel, "Username:", 
-                     "Source Username", "Enter Icecast streaming username (default is source)", 6);
+                     "Source Username", "Enter Icecast streaming username (default is source)", 9);
     
     setupTextEditor (passInput, passLabel, "Password:", 
-                     "Source Password", "Enter Icecast mountpoint password", 7, true);
+                     "Source Password", "Enter Icecast mountpoint password", 10, true);
     
     setupTextEditor (mountInput, mountLabel, "Mount:", 
-                     "Mount Point", "Enter target mountpoint (e.g. /live.mp3)", 8);
+                     "Mount Point", "Enter target mountpoint (e.g. /live.mp3)", 11);
 
-    // Right Column Controls (Focus 9 - 14)
+    // Right Column Controls (Focus 12 - 17)
     setupTextEditor (nameInput, nameLabel, "Name:", 
-                     "Stream Name", "Enter the public name of your broadcast station", 9);
+                     "Stream Name", "Enter the public name of your broadcast station", 12);
     
     setupTextEditor (genreInput, genreLabel, "Genre:", 
-                     "Stream Genre", "Enter broadcast genre tags (e.g. Electronic, Rock)", 10);
+                     "Stream Genre", "Enter broadcast genre tags (e.g. Electronic, Rock)", 13);
                      
     setupTextEditor (descInput, descLabel, "Desc:", 
-                     "Stream Description", "Enter stream description metadata", 11);
+                     "Stream Description", "Enter stream description metadata", 14);
                      
     setupTextEditor (urlInput, urlLabel, "URL:", 
-                     "Stream URL", "Enter stream homepage URL link", 12);
+                     "Stream URL", "Enter stream homepage URL link", 15);
                      
     setupTextEditor (artistInput, artistLabel, "Artist:", 
-                     "Current Artist", "Enter active artist metadata for stream overlays", 13);
+                     "Current Artist", "Enter active artist metadata for stream overlays", 16);
                      
     setupTextEditor (titleInput, titleLabelField, "Title:", 
-                     "Current Title", "Enter active song title metadata for stream overlays", 14);
+                     "Current Title", "Enter active song title metadata for stream overlays", 17);
 
-    // Footer Buttons (Focus 15 - 16)
+    // Footer Buttons (Focus 18 - 19)
     addAndMakeVisible (connectButton);
     connectButton.setWantsKeyboardFocus (true);
-    connectButton.setExplicitFocusOrder (16);
+    connectButton.setExplicitFocusOrder (19);
     connectButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0x171C2E));
     connectButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF00E5FF));
     connectButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFE3E8F4));
@@ -198,7 +291,7 @@ void DawCastAudioProcessorEditor::setupUIComponents()
     addAndMakeVisible (updateMetadataButton);
     updateMetadataButton.setButtonText ("Update Track Info");
     updateMetadataButton.setWantsKeyboardFocus (true);
-    updateMetadataButton.setExplicitFocusOrder (15);
+    updateMetadataButton.setExplicitFocusOrder (18);
     updateMetadataButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0x171C2E));
     updateMetadataButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF00E5FF));
     updateMetadataButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFE3E8F4));
@@ -214,8 +307,12 @@ void DawCastAudioProcessorEditor::setupUIComponents()
 void DawCastAudioProcessorEditor::resized()
 {
     // Title / Status header
-    titleLabel.setBounds (20, 15, getWidth() - 40, 30);
-    statusLabel.setBounds (20, 48, getWidth() - 40, 20);
+    titleLabel.setBounds (20, 15, 300, 30);
+    presetCombo.setBounds (420, 15, 160, 30);
+    presetSaveButton.setBounds (595, 15, 95, 30);
+    presetDeleteButton.setBounds (700, 15, 100, 30);
+
+    statusLabel.setBounds (20, 50, getWidth() - 40, 20);
 
     int colY = 80;
     int colH = 390;
@@ -244,7 +341,7 @@ void DawCastAudioProcessorEditor::resized()
     titleInput.setBounds (655, colY + 280, 135, 28);
 
     // Footer buttons layout
-    int btnY = 490;
+    int btnY = 495;
     int btnH = 45;
     
     // Symmetrical layout
@@ -445,12 +542,106 @@ void DawCastAudioProcessorEditor::saveSettingsToProcessor()
     s.currentTitle = titleInput.getText();
     
     // Push settings into processor
-    audioProcessor.startStreaming (s); // This is clean since settings are copied, but wait:
-    // If we only want to save without starting streaming (e.g. on close), we can save it in state info
-    // But startStreaming takes s, so it copies s.
-    // If we update current settings when not streaming:
-    // Actually, let's write a simple helper in Processor to update currentSettings when not streaming!
-    // But wait, startStreaming handles copying. We should write:
-    // Wait, let's look at startStreaming in processor, it copies the settings first!
-    // So saveSettingsToProcessor is just called before calling processor.startStreaming.
+    audioProcessor.setConnectionSettings (s);
+}
+
+void DawCastAudioProcessorEditor::updatePresetsCombo()
+{
+    presetCombo.clear (juce::dontSendNotification);
+    presetCombo.addItem ("Custom", 1);
+    
+    auto names = audioProcessor.getPresetNames();
+    for (int i = 0; i < names.size(); ++i)
+    {
+        presetCombo.addItem (names[i], i + 2);
+    }
+    
+    presetCombo.setSelectedId (1, juce::dontSendNotification);
+}
+
+void DawCastAudioProcessorEditor::savePresetClicked()
+{
+    // Prompt the user for a name using an AlertWindow
+    auto* alert = new juce::AlertWindow ("Save Preset",
+                                         "Enter a name for the new preset:",
+                                         juce::AlertWindow::QuestionIcon);
+                                         
+    alert->addTextEditor ("presetName", "", "Preset Name:");
+    
+    alert->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey, 0, 0));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey, 0, 0));
+    
+    alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert] (int result)
+    {
+        if (result == 1)
+        {
+            auto name = alert->getTextEditorContents ("presetName").trim();
+            if (name.isNotEmpty())
+            {
+                DawCastAudioProcessor::ConnectionSettings s;
+                s.host = hostInput.getText();
+                s.port = portInput.getText().getIntValue();
+                s.username = userInput.getText();
+                s.password = passInput.getText();
+                s.mountPoint = mountInput.getText();
+                
+                s.format = formatCombo.getSelectedId() == 2 ? "ogg" : "mp3";
+                s.bitrateKbps = bitrateCombo.getText().getIntValue();
+                
+                int srId = sampleRateCombo.getSelectedId();
+                s.targetSampleRate = (srId == 2) ? 44100 : ((srId == 3) ? 48000 : 0);
+                
+                s.streamName = nameInput.getText();
+                s.streamGenre = genreInput.getText();
+                s.streamDescription = descInput.getText();
+                s.streamUrl = urlInput.getText();
+                
+                s.currentArtist = artistInput.getText();
+                s.currentTitle = titleInput.getText();
+
+                // Save to processor
+                audioProcessor.savePreset (name, s);
+                
+                // Refresh presets combo
+                updatePresetsCombo();
+                
+                // Select the newly created preset
+                presetCombo.setText (name, juce::dontSendNotification);
+            }
+        }
+        delete alert;
+    }));
+}
+
+void DawCastAudioProcessorEditor::deletePresetClicked()
+{
+    auto selectedPreset = presetCombo.getText();
+    if (selectedPreset.isEmpty() || selectedPreset == "Custom")
+        return;
+
+    juce::AlertWindow::showOkCancelBox (juce::AlertWindow::QuestionIcon,
+                                        "Delete Preset",
+                                        "Are you sure you want to delete the preset \"" + selectedPreset + "\"?",
+                                        "Yes", "No",
+                                        nullptr,
+                                        juce::ModalCallbackFunction::create ([this, selectedPreset] (int result)
+                                        {
+                                            if (result != 0) // Yes clicked
+                                            {
+                                                audioProcessor.deletePreset (selectedPreset);
+                                                updatePresetsCombo();
+                                                loadSettingsFromProcessor();
+                                            }
+                                        }));
+}
+
+void DawCastAudioProcessorEditor::userModifiedSettings()
+{
+    if (isUpdatingFromPreset)
+        return;
+        
+    if (presetCombo.getText() != "Custom")
+        presetCombo.setText ("Custom", juce::dontSendNotification);
+
+    saveSettingsToProcessor();
 }

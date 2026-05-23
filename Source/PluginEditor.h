@@ -30,6 +30,12 @@ private:
     juce::Label titleLabel;
     juce::Label statusLabel;
 
+    // Presets UI Controls
+    juce::ComboBox presetCombo;
+    juce::Label presetLabel;
+    juce::TextButton presetSaveButton;
+    juce::TextButton presetDeleteButton;
+
     // Left Column: Audio Options
     juce::Label encoderHeader;
     
@@ -90,6 +96,11 @@ private:
     void updateUIState();
     void saveSettingsToProcessor();
     void loadSettingsFromProcessor();
+    void updatePresetsCombo();
+    void savePresetClicked();
+    void deletePresetClicked();
+    void userModifiedSettings();
+    bool isUpdatingFromPreset = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DawCastAudioProcessorEditor)
 };
