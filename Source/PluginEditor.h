@@ -100,7 +100,7 @@ private:
                         IUnknown* unk = (IUnknown*) nativeHandle;
                         
                         static const GUID uuid_IRawElementProviderSimple = 
-                            { 0xd6dd20d1, 0xcd34, 0x4ab3, { 0xb7, 0xec, 0xb0, 0xae, 0x2d, 0xe7, 0xe1, 0x68 } };
+                            { 0xd6dd68d1, 0x86fd, 0x4332, { 0x86, 0x66, 0x9a, 0xbe, 0xde, 0xa2, 0xd2, 0x4c } };
                         
                         IUnknown* provider = nullptr;
                         if (SUCCEEDED (unk->QueryInterface (uuid_IRawElementProviderSimple, (void**) &provider)) && provider != nullptr)
